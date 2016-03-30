@@ -1,0 +1,48 @@
+---
+
+- name: create ssl
+  hosts: localhost
+  vars_files: 
+    - [host_vars/127.0.0.1]
+  tasks:
+    - name: create server key
+      shell: openssl req -new -newkey rsa:2048 -nodes -subj "/C={{nodes.AdminCountry}}/ST={{nodes.AdminCity}}/L={{nodes.AdminCity}}/O=IT/CN={{ ssl_hostname.hostname }}/emailAddress={{ nodes.AdminEmailAddress}}" -keyout server.key -out server.csr
+      tags: [create_ssl]
+
+    - name: create & activate ssl
+      shell: /usr/bin/python main.py
+      register: file_name
+      tags: [create_ssl]
+
+    - debug: msg="{{file_name.stdout}}"
+      tags: [create_ssl]
+
+    - name: download file
+      shell: scp -p {{file_name.stdout}} root@{{ ssl_hostname.hostname }}:/var/www/{{ssl_hostname.site}}/{{file_name.stdout}}
+      when: file_name != '"ERROR"'
+      tags: [create_ssl]
+
+    - name: get certs
+      shell: /usr/bin/python get_certs.py
+      register: status
+      tags: [get_ssl]
+
+    - name: Check for server.ca-bundle
+      stat: path=./server.ca-bundle
+      register: server_crt
+      tags: [get_ssl]
+
+    - name: download cert file
+      shell: scp -p server.ca-bundle root@{{ ssl_hostname.hostname }}:/etc/nginx/ssl/{{ ssl_hostname.hostname }}.crt
+      when: server_crt.stat.exists == True
+      tags: [get_ssl]
+
+    - name: download cert file
+      shell: scp -p server.key root@{{ ssl_hostname.hostname }}:/etc/nginx/ssl/{{ ssl_hostname.hostname }}.key
+      when: server_crt.stat.exists == True
+      tags: [get_ssl]
+
+    - name: copy ngnix config
+      template: src=nginx_ssl_config.j2 dest=/etc/nginx/sites-enabled/{{ ssl_hostname.hostname }}
+      notify: restart nginx
+      tags: [get_ssl]
